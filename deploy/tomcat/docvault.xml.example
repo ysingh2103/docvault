@@ -1,0 +1,9 @@
+
+<Context>
+  <Resource name="jdbc/docvault" auth="Container" type="javax.sql.DataSource"
+            driverClassName="org.postgresql.Driver"
+            url="jdbc:postgresql://localhost:5432/docvault_db"
+            username="docvault_app"
+            password="CHANGE_ME"
+            maxTotal="10" maxIdle="5" maxWaitMillis="5000"/>
+</Context>
