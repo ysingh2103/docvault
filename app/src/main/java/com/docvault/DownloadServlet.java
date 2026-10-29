@@ -25,18 +25,30 @@ public class DownloadServlet extends HttpServlet {
             return;
         }
 
+        Auth.User user = Auth.current(req);
+        if (user == null) {
+            resp.sendRedirect(req.getContextPath() + "/login");
+            return;
+        }
+
         String path = null;
         String name = null;
         String type = null;
+        boolean allowed = false;
         try (Connection c = Db.get();
              PreparedStatement ps = c.prepareStatement(
-                     "SELECT storage_path, file_name, content_type FROM documents WHERE document_id = ?")) {
-            ps.setInt(1, id);
+                     "SELECT d.storage_path, d.file_name, d.content_type, d.owner_id, "
+                   + "EXISTS (SELECT 1 FROM document_access a "
+                   + "WHERE a.document_id = d.document_id AND a.user_id = ?) "
+                   + "FROM documents d WHERE d.document_id = ?")) {
+            ps.setInt(1, user.id());
+            ps.setInt(2, id);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     path = rs.getString(1);
                     name = rs.getString(2);
                     type = rs.getString(3);
+                    allowed = user.isAdmin() || rs.getInt(4) == user.id() || rs.getBoolean(5);
                 }
             }
         } catch (Exception e) {
@@ -47,6 +59,11 @@ public class DownloadServlet extends HttpServlet {
 
         if (path == null) {
             resp.sendError(404, "No such document");
+            return;
+        }
+        if (!allowed) {
+            getServletContext().log("DocVault: " + user.username() + " was refused document " + id);
+            resp.sendError(403, "You don't have access to this document");
             return;
         }
         Path file = Paths.get(path);

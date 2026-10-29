@@ -47,7 +47,10 @@ public class DocumentsServlet extends HttpServlet {
                   <span class="mark" aria-hidden="true"><i>0</i><i>1</i></span>
                   <span class="word">DocVault<b class="cur">_</b></span>
                 </a>
-                <div class="status {{statusClass}}" role="status"><span class="dot"></span>{{statusText}}</div>
+                <div class="tools">
+                  <div class="status {{statusClass}}" role="status"><span class="dot"></span>{{statusText}}</div>
+                  {{userBar}}
+                </div>
               </div>
             </header>
             <main class="wrap">
@@ -72,6 +75,9 @@ public class DocumentsServlet extends HttpServlet {
                 <button class="btn primary" type="submit">Upload</button>
               </form>
             </section>
+            """;
+
+    private static final String LIST_HEAD = """
             <section aria-labelledby="list-h">
               <div class="list-head">
                 <h2 id="list-h">Documents</h2>
@@ -103,17 +109,33 @@ public class DocumentsServlet extends HttpServlet {
         boolean searching = !q.isEmpty();
         // Search uses the GIN index on search_vector and ranks by relevance;
         // without a query the list is newest first.
+        Auth.User user = Auth.current(req);
+        if (user == null) {
+            resp.sendRedirect(req.getContextPath() + "/login");
+            return;
+        }
+        // Admins see everything. Everyone else sees documents they own plus ones shared with them.
+        boolean everything = user.isAdmin();
+        String visible = "(d.owner_id = ? OR EXISTS (SELECT 1 FROM document_access a "
+                + "WHERE a.document_id = d.document_id AND a.user_id = ?))";
+        String cols = "SELECT d.document_id, d.title, d.file_name, d.size_bytes, d.uploaded_at FROM documents d ";
         String sql = searching
-                ? "SELECT document_id, title, file_name, size_bytes, uploaded_at FROM documents "
-                + "WHERE search_vector @@ websearch_to_tsquery('english', ?) "
-                + "ORDER BY ts_rank(search_vector, websearch_to_tsquery('english', ?)) DESC, uploaded_at DESC"
-                : "SELECT document_id, title, file_name, size_bytes, uploaded_at "
-                + "FROM documents ORDER BY uploaded_at DESC";
+                ? cols + "WHERE d.search_vector @@ websearch_to_tsquery('english', ?) "
+                + (everything ? "" : "AND " + visible + " ")
+                + "ORDER BY ts_rank(d.search_vector, websearch_to_tsquery('english', ?)) DESC, d.uploaded_at DESC"
+                : cols + (everything ? "" : "WHERE " + visible + " ") + "ORDER BY d.uploaded_at DESC";
         try (Connection c = Db.get();
              PreparedStatement ps = c.prepareStatement(sql)) {
+            int i = 1;
             if (searching) {
-                ps.setString(1, q);
-                ps.setString(2, q);
+                ps.setString(i++, q);
+            }
+            if (!everything) {
+                ps.setInt(i++, user.id());
+                ps.setInt(i++, user.id());
+            }
+            if (searching) {
+                ps.setString(i, q);
             }
             ResultSet rs = ps.executeQuery();
             while (rs.next()) {
@@ -160,6 +182,9 @@ public class DocumentsServlet extends HttpServlet {
         } else if (count == 0 && searching) {
             table = "<div class=\"empty\"><p>No documents match that search.</p>"
                   + "<p>Try a different word, or clear the search to see everything.</p></div>\n";
+        } else if (count == 0 && !user.canUpload()) {
+            table = "<div class=\"empty\"><p>Nothing has been shared with you yet.</p>"
+                  + "<p>Ask an editor or an administrator to give you access to a document.</p></div>\n";
         } else if (count == 0) {
             table = "<div class=\"empty\"><p>No documents yet.</p>"
                   + "<p>Choose a file above to store your first one.</p></div>\n";
@@ -173,10 +198,16 @@ public class DocumentsServlet extends HttpServlet {
         resp.setStatus(dbOk ? 200 : 503);
         resp.setContentType("text/html;charset=UTF-8");
         PrintWriter out = resp.getWriter();
+        String userBar = "<span class=\"who\">" + esc(user.username()) + " <em>" + esc(user.role()) + "</em></span>"
+                + "<form method=\"post\" action=\"logout\"><button class=\"btn\" type=\"submit\">Sign out</button></form>";
         out.print(TOP.replace("{{statusClass}}", dbOk ? "up" : "down")
-                     .replace("{{statusText}}", dbOk ? "Database online" : "Database unreachable"));
+                     .replace("{{statusText}}", dbOk ? "Database online" : "Database unreachable")
+                     .replace("{{userBar}}", userBar));
         out.print(toast);
-        out.print(UPLOAD.replace("{{summary}}", summary)
+        if (user.canUpload()) {
+            out.print(UPLOAD);
+        }
+        out.print(LIST_HEAD.replace("{{summary}}", summary)
                         .replace("{{q}}", esc(q))
                         .replace("{{clear}}", searching ? " <a class=\"btn\" href=\"documents\">Clear</a>" : ""));
         out.print(table);
@@ -185,6 +216,16 @@ public class DocumentsServlet extends HttpServlet {
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        Auth.User user = Auth.current(req);
+        if (user == null) {
+            resp.sendRedirect(req.getContextPath() + "/login");
+            return;
+        }
+        if (!user.canUpload()) {
+            getServletContext().log("DocVault: upload refused for " + user.username() + " (" + user.role() + ")");
+            resp.sendError(403, "Your role cannot upload documents");
+            return;
+        }
         Part part;
         String title;
         try {
@@ -214,13 +255,14 @@ public class DocumentsServlet extends HttpServlet {
                  PreparedStatement ps = c.prepareStatement(
                          "INSERT INTO documents (title, file_name, content_type, size_bytes, "
                        + "storage_path, owner_id, search_vector) "
-                       + "VALUES (?, ?, ?, ?, ?, 1, to_tsvector('english', ?))")) {
+                       + "VALUES (?, ?, ?, ?, ?, ?, to_tsvector('english', ?))")) {
                 ps.setString(1, title.trim());
                 ps.setString(2, original);
                 ps.setString(3, part.getContentType());
                 ps.setLong(4, part.getSize());
                 ps.setString(5, target.toString());
-                ps.setString(6, title.trim() + " " + original);
+                ps.setInt(6, user.id());
+                ps.setString(7, title.trim() + " " + original);
                 ps.executeUpdate();
             }
             redirect(resp, "ok", "Uploaded " + original + ".");

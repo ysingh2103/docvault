@@ -39,3 +39,26 @@ Browser -> NGINX (reverse proxy) -> Tomcat 10 (DocVault WAR) -> PostgreSQL (meta
 
 ## Security
 No credentials are stored in this repo. The database password lives only in Tomcat's configuration on the server.
+
+## Login and roles (Phase 2b)
+
+| Role | Can upload | Sees |
+|---|---|---|
+| admin | yes | every document |
+| editor | yes | documents they own, plus ones shared with them |
+| viewer | no | only documents shared with them (`document_access`) |
+
+Passwords are stored as salted PBKDF2-SHA256 hashes in `users.password_hash`, never as plain text.
+A refused download returns 403; a signed-out visitor is sent to `/login`.
+
+### Passwords
+
+```bash
+cd app && mvn -q package
+java -cp target/classes com.docvault.PasswordTool 'choose-a-password'
+# paste the printed line into: UPDATE users SET password_hash = '...' WHERE username = 'admin';
+```
+
+Run `sql/03_roles.sql` as `postgres` first. Sessions last 30 minutes of inactivity.
+The app is served over plain HTTP on the lab network, so the session cookie is not marked Secure;
+put TLS in front before exposing it publicly.
