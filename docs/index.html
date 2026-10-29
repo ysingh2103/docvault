@@ -1,0 +1,963 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Interactive 3D walkthrough of how requests flow through DocVault: NGINX, Tomcat, PostgreSQL and Linux.">
+<title>DocVault Explorer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600&family=Hanken+Grotesk:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: 3D layer stack on the left with a replayable request path beneath it, node details on the right. Dark blue and black first, matching the DocVault app. */
+:root {
+  --display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --body: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+  --bg: #02050b;
+  --panel: #06101f;
+  --panel-hi: #0a1a35;
+  --line: #12264a;
+  --text: #d6e3ff;
+  --muted: #8ea3cc;
+  --blue: #2b7fff;
+  --frost: #7dbbff;
+  --on-blue: #02050b;
+  --chip: rgba(6, 16, 31, 0.86);
+  --slab: #0a1a35;
+  --slab-edge: #24477f;
+  --n-req: #2b7fff;
+  --n-data: #7dbbff;
+  --n-ext: #44547a;
+  --n-os: #33466e;
+  --n-edge: #a9ccff;
+  --p-req: #ffffff;
+  --p-res: #35d4ff;
+  --sel: #ffffff;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f2f6fd;
+    --panel: #ffffff;
+    --panel-hi: #e6eefb;
+    --line: #c7d5ee;
+    --text: #0b1a33;
+    --muted: #4d6086;
+    --blue: #1c5fd6;
+    --frost: #1c5fd6;
+    --on-blue: #ffffff;
+    --chip: rgba(255, 255, 255, 0.92);
+    --slab: #dde8fb;
+    --slab-edge: #93acde;
+    --n-req: #1c5fd6;
+    --n-data: #0f7aa6;
+    --n-ext: #7d8db2;
+    --n-os: #8c9dc2;
+    --n-edge: #0b3a8a;
+    --p-req: #0b1a33;
+    --p-res: #0a8fd0;
+    --sel: #0b1a33;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f2f6fd;
+  --panel: #ffffff;
+  --panel-hi: #e6eefb;
+  --line: #c7d5ee;
+  --text: #0b1a33;
+  --muted: #4d6086;
+  --blue: #1c5fd6;
+  --frost: #1c5fd6;
+  --on-blue: #ffffff;
+  --chip: rgba(255, 255, 255, 0.92);
+  --slab: #dde8fb;
+  --slab-edge: #93acde;
+  --n-req: #1c5fd6;
+  --n-data: #0f7aa6;
+  --n-ext: #7d8db2;
+  --n-os: #8c9dc2;
+  --n-edge: #0b3a8a;
+  --p-req: #0b1a33;
+  --p-res: #0a8fd0;
+  --sel: #0b1a33;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 var(--body);
+  padding-block: 24px 44px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1180px; margin: 0 auto; }
+h1 { margin: 0 0 6px; font: 600 30px/1.15 var(--display); letter-spacing: -0.01em; text-wrap: balance; }
+.lede { margin: 0 0 20px; max-width: 64ch; color: var(--muted); }
+.grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.left, .detail { min-width: 0; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.viewport { position: relative; height: clamp(340px, 58vw, 560px); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; touch-action: pan-y; }
+#gl { display: block; width: 100%; height: 100%; }
+#labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.lbl {
+  position: absolute; left: 0; top: 0; pointer-events: auto; cursor: pointer; white-space: nowrap; will-change: transform;
+  background: var(--chip); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px;
+  font: 500 12px/1.25 var(--display); text-align: left;
+}
+.lbl small { display: block; font: 400 11px/1.25 var(--mono); color: var(--muted); }
+.lbl:hover { border-color: var(--blue); }
+.lbl[aria-pressed="true"] { border-color: var(--sel); box-shadow: 0 0 0 1px var(--sel); }
+.layer-name { position: absolute; left: 0; top: 0; pointer-events: none; white-space: nowrap; font: 500 12px/1 var(--mono); color: var(--muted); }
+.legend { position: absolute; top: 12px; right: 12px; display: flex; gap: 14px; padding: 5px 10px; background: var(--chip); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw, .dir { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.sw.req, .dir.req { background: var(--p-req); border: 1px solid var(--line); }
+.sw.res, .dir.res { background: var(--p-res); }
+.hint { position: absolute; left: 12px; bottom: 10px; margin: 0; font-size: 12px; color: var(--muted); }
+.nogl { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 24px; text-align: center; color: var(--muted); }
+
+.controls { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; justify-content: space-between; margin-top: 12px; }
+.seg, .play { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { min-height: 38px; padding: 8px 14px; font: 500 14px/1.2 var(--body); color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.btn:hover { border-color: var(--blue); }
+.btn[aria-pressed="true"] { background: var(--panel-hi); border-color: var(--blue); }
+.btn.primary { color: var(--on-blue); background: var(--blue); border-color: var(--blue); min-width: 84px; }
+:focus-visible { outline: 2px solid var(--frost); outline-offset: 2px; }
+.replay-note { margin: 10px 0 0; font-size: 13px; color: var(--muted); max-width: 70ch; }
+
+.steps { list-style: none; counter-reset: s; margin: 14px 0 0; padding: 0; display: grid; gap: 4px; }
+.steps li { counter-increment: s; }
+.step { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 8px 10px; text-align: left; font: 400 14px/1.45 var(--body); color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
+.step::before { content: counter(s); min-width: 1.5em; font: 500 12px/1.9 var(--mono); color: var(--muted); }
+.step .dir { margin-top: 7px; }
+.step:hover { color: var(--text); }
+.step[aria-current="step"] { color: var(--text); background: var(--panel); border-color: var(--line); }
+
+.detail { position: sticky; top: 16px; padding: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.d-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.detail h2 { margin: 0; font: 600 22px/1.2 var(--display); }
+.layer-chip { padding: 1px 9px; font-size: 12px; color: var(--frost); border: 1px solid var(--line); border-radius: 999px; }
+.d-sub { margin: 2px 0 0; font: 400 12.5px/1.4 var(--mono); color: var(--muted); }
+.what { margin: 12px 0 0; }
+.detail h3 { margin: 18px 0 6px; font: 600 14px/1.3 var(--display); color: var(--text); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.chips li { padding: 2px 9px; font-size: 12.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; }
+.cmd { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+.cmd code { flex: 1; min-width: 0; font: 400 12.5px/1.5 var(--mono); overflow-wrap: anywhere; }
+.copy { flex: none; padding: 2px 8px; font: 500 12px/1.4 var(--body); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.copy:hover { color: var(--text); border-color: var(--blue); }
+.note { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; font-size: 14px; }
+.tag { flex: none; margin-top: 1px; padding: 0 8px; font-size: 12px; line-height: 1.6; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.tag.seen { color: var(--on-blue); background: var(--blue); border-color: var(--blue); }
+
+@media (max-width: 860px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .detail { position: static; }
+  .viewport { height: clamp(320px, 92vw, 460px); }
+  .lbl small { display: none; }
+  .legend { top: 8px; right: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; scroll-behavior: auto !important; }
+}
+</style>
+
+<style>[hidden]{display:none!important}</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>DocVault Explorer</h1>
+    <p class="lede">Follow one request through every layer of DocVault, from the browser down to the Linux host. Select any part to see what it does, how to inspect it, and what has gone wrong there.</p>
+  </header>
+
+  <div class="grid">
+    <section class="left" aria-label="Request path">
+      <div class="viewport" id="viewport">
+        <canvas id="gl" role="img" aria-label="3D model of the DocVault stack, with five layers from the browser down to the Linux host"></canvas>
+        <div id="labels"></div>
+        <div class="legend" aria-hidden="true"><span><i class="sw req"></i>Request</span><span><i class="sw res"></i>Response</span></div>
+        <p class="hint">Drag to rotate. Scroll or pinch to zoom. Double-click to reset.</p>
+        <p class="nogl" id="nogl" hidden>The 3D view needs WebGL, which this browser has turned off. The steps and details still work.</p>
+      </div>
+      <div class="controls">
+        <div class="seg" id="scen" role="group" aria-label="Request type"></div>
+        <div class="play">
+          <button class="btn" id="back" type="button">Back</button>
+          <button class="btn primary" id="play" type="button">Play</button>
+          <button class="btn" id="next" type="button">Next</button>
+        </div>
+      </div>
+      <p class="replay-note">This replays the path of a request at an illustrative speed. Real timings arrive once each tier logs a request ID.</p>
+      <ol class="steps" id="steps"></ol>
+    </section>
+    <aside class="detail" id="detail" aria-label="Details for the selected part"></aside>
+  </div>
+</div>
+
+<script src="three.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var RM = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var NODE_H = 0.6;
+
+  var LAYERS = [
+    { id: 'client', name: 'Client', y: 4.4 },
+    { id: 'edge', name: 'Edge', y: 2.2 },
+    { id: 'app', name: 'Application', y: 0 },
+    { id: 'data', name: 'Data', y: -2.2 },
+    { id: 'os', name: 'Linux host', y: -4.4 }
+  ];
+  var LAYER_BY_ID = {};
+  LAYERS.forEach(function (l) { LAYER_BY_ID[l.id] = l; });
+
+  var NODES = {
+    browser: {
+      layer: 'client', x: -3.6, role: 'req', title: 'Browser', sub: 'HTTP client',
+      what: 'Sends HTTP requests to NGINX on port 8081 and follows the redirects it gets back.',
+      skills: ['HTTP methods and status codes', 'Request and response headers', 'Redirects'],
+      inspect: [
+        'curl -i http://<server-ip>:8081/docvault/documents',
+        'curl -s -i -F "title=Test" -F "file=@/tmp/hello.txt" http://<server-ip>:8081/docvault/documents | grep -i location'
+      ],
+      notes: [{ kind: 'seen', text: 'After an upload the browser landed on a 404. The redirect had lost its port because NGINX passed Host $host. Switching to $http_host fixed it.' }]
+    },
+    nginx: {
+      layer: 'edge', x: -3.6, role: 'req', title: 'NGINX', sub: ':8081 reverse proxy',
+      what: 'Receives every browser request on port 8081 and forwards /docvault/ and /supportdesk/ to Tomcat on port 8080.',
+      skills: ['Server and location blocks', 'proxy_pass and proxy_set_header', 'Request body limits', 'Access and error logs'],
+      inspect: [
+        'sudo nginx -t',
+        'sudo ss -tlnp | grep 8081',
+        'sudo tail -f /var/log/nginx/access.log'
+      ],
+      notes: [
+        { kind: 'seen', text: 'The default site was still enabled and answered before the app config. Removing its symlink fixed the 404.' },
+        { kind: 'seen', text: 'An empty access log next to a real response showed the request never reached NGINX at all.' },
+        { kind: 'planned', text: 'Uploads over 1 MB fail with a 413 unless client_max_body_size is raised. Kept as a trainer scenario.' }
+      ]
+    },
+    traefik: {
+      layer: 'edge', x: 3.6, role: 'ext', title: 'Traefik (k3s)', sub: 'owns port 80',
+      what: 'The ingress controller that ships with k3s. It claims port 80 on the server address, which is why NGINX listens on 8081.',
+      skills: ['Kubernetes services and ingress', 'iptables NAT rules', 'Port conflicts across layers'],
+      inspect: [
+        'sudo kubectl get svc -A | grep traefik',
+        'sudo iptables -t nat -L -n | grep 80',
+        'sudo ss -tlnp | grep ":80 "'
+      ],
+      notes: [{ kind: 'seen', text: 'NGINX on port 80 returned a Go-style 404. ss showed NGINX bound, but a DNAT rule sent the traffic to Traefik first.' }]
+    },
+    tomcat: {
+      layer: 'app', frame: true, role: 'req', title: 'Tomcat 10', sub: 'systemd service',
+      what: 'Runs the DocVault and SupportDesk web apps and owns the database connection pool. Ubuntu starts it inside a sandbox.',
+      skills: ['WAR deployment', 'JNDI resources', 'catalina.out and journalctl', 'JAVA_OPTS and heap size'],
+      inspect: [
+        'sudo systemctl status tomcat10',
+        'sudo journalctl -u tomcat10 --since "10 minutes ago"',
+        'sudo tail -50 /var/log/tomcat10/catalina.out'
+      ],
+      notes: [
+        { kind: 'seen', text: 'Uploads need a writable path. The sandbox allows only three, so /var/lib/docvault was added with a systemd drop-in.' },
+        { kind: 'seen', text: 'In the earlier lab, a malformed web.xml stopped one app from deploying. Reloading just that context fixed it.' },
+        { kind: 'seen', text: 'In the earlier lab, a JAVA_OPTS heap of 8 MB caused memory errors at startup.' }
+      ]
+    },
+    app: {
+      layer: 'app', x: -3.6, role: 'req', title: 'DocVault app', sub: 'servlets in a WAR',
+      what: 'Lists, uploads, and downloads documents. It saves the file first, then the database row, and removes the file again if the row fails.',
+      skills: ['Java servlets', 'Maven packaging', 'Honest status codes: 200, 302, 404, 503'],
+      inspect: [
+        'curl -i http://localhost:8080/docvault/documents',
+        'sudo ls -l /var/lib/tomcat10/webapps/'
+      ],
+      notes: [{ kind: 'planned', text: 'A record that exists while its file is missing returns a 404 with its own message. Kept as a trainer scenario.' }]
+    },
+    pool: {
+      layer: 'app', x: 0, role: 'req', title: 'Connection pool', sub: 'JNDI, max 10',
+      what: 'Tomcat keeps up to 10 database connections open and hands one to each request. A request waits 5 seconds for a free one.',
+      skills: ['JNDI resources', 'Pool size and timeouts', 'Keeping passwords out of code'],
+      inspect: [
+        'sudo ls -l /etc/tomcat10/Catalina/localhost/docvault.xml',
+        'sudo -u postgres psql -c "SELECT usename, state FROM pg_stat_activity;"'
+      ],
+      notes: [{ kind: 'planned', text: 'Pool exhausted: requests wait 5 seconds, then fail with a 503. Kept as a trainer scenario.' }]
+    },
+    driver: {
+      layer: 'app', x: 3.6, role: 'req', title: 'JDBC driver', sub: 'in Tomcat lib',
+      what: 'The PostgreSQL client jar that lets Java talk to the database. It sits in Tomcat\'s lib folder so the pool can load it.',
+      skills: ['Classpath and class loaders', 'Driver and URL mismatches'],
+      inspect: [
+        'ls -l /var/lib/tomcat10/lib/postgresql.jar',
+        'sudo grep -i driver /var/log/tomcat10/catalina.out'
+      ],
+      notes: [{ kind: 'seen', text: 'In the earlier lab, a misplaced driver caused "no suitable driver found".' }]
+    },
+    pg: {
+      layer: 'data', x: 3.6, role: 'data', title: 'PostgreSQL', sub: 'docvault_db',
+      what: 'Stores document metadata in three tables. The app user can read and write rows but cannot change the schema.',
+      skills: ['Foreign keys and joins', 'GIN index for full-text search', 'Least-privilege users', 'pg_hba.conf authentication'],
+      inspect: [
+        'psql -U docvault_app -d docvault_db -h localhost -c "\\dt"',
+        'sudo ss -tlnp | grep 5432'
+      ],
+      notes: [
+        { kind: 'seen', text: 'The app user is denied CREATE TABLE, which shows the least-privilege setup works.' },
+        { kind: 'seen', text: 'In the earlier lab, pg_hba.conf rejected a connection until its auth line was fixed.' },
+        { kind: 'planned', text: 'Slow search after dropping the index. Kept as a trainer scenario.' }
+      ]
+    },
+    disk: {
+      layer: 'data', x: -3.6, role: 'data', title: 'Disk', sub: 'uploaded files',
+      what: 'Holds the file bytes under /var/lib/docvault/files. The database row stores only the path.',
+      skills: ['Ownership and modes', 'Free space and inodes', 'Backups'],
+      inspect: [
+        'sudo ls -l /var/lib/docvault/files',
+        'df -h /var/lib/docvault',
+        'df -i /var/lib/docvault'
+      ],
+      notes: [{ kind: 'planned', text: 'Disk full, and a file deleted behind the app\'s back. Kept as trainer scenarios.' }]
+    },
+    fs: {
+      layer: 'os', x: -3.6, role: 'os', title: 'Filesystem', sub: 'owners and modes',
+      what: 'Decides who can read or write each path. Tomcat runs as its own user, so the upload folder is owned by tomcat with mode 750.',
+      skills: ['chown and chmod', 'Reading ls -l', 'Service accounts'],
+      inspect: [
+        'ls -ld /var/lib/docvault /var/lib/docvault/files',
+        'id tomcat'
+      ],
+      notes: [{ kind: 'seen', text: 'In the earlier lab, a nightly backup failed through three stacked permission problems, each hidden by the one before it.' }]
+    },
+    ufw: {
+      layer: 'os', x: 0, role: 'os', title: 'Firewall (ufw)', sub: 'allowed ports only',
+      what: 'Lets in only the ports on its list, such as SSH, Tomcat, Grafana, and NGINX. Everything else is dropped.',
+      skills: ['Firewall rules', 'Local versus remote reachability'],
+      inspect: [
+        'sudo ufw status',
+        'sudo ufw allow 8081/tcp'
+      ],
+      notes: [{ kind: 'seen', text: 'Grafana ran fine on the server but could not be reached from a browser until port 3000 was allowed.' }]
+    },
+    systemd: {
+      layer: 'os', x: 3.6, role: 'os', title: 'systemd sandbox', sub: 'ProtectSystem=strict',
+      what: 'Runs Tomcat with most of the filesystem read-only. Extra write paths are granted with a drop-in file.',
+      skills: ['Unit files and drop-ins', 'daemon-reload', 'Service hardening'],
+      inspect: [
+        'systemctl cat tomcat10 | grep -E "ProtectSystem|ReadWritePaths"',
+        'systemctl show tomcat10 -p ReadWritePaths'
+      ],
+      notes: [{ kind: 'seen', text: 'Added /var/lib/docvault as a writable path so uploads work.' }]
+    }
+  };
+
+  var SCEN = {
+    list: {
+      label: 'List documents',
+      steps: [
+        { a: 'browser', b: 'nginx', dir: 'req', touch: ['ufw'], t: 'The browser sends GET /docvault/documents to port 8081. The firewall allows that port.' },
+        { a: 'nginx', b: 'app', dir: 'req', t: 'NGINX matches the /docvault/ location and proxies the request to Tomcat on port 8080.' },
+        { a: 'app', b: 'pool', dir: 'req', t: 'The servlet asks Tomcat for a connection from the jdbc/docvault pool.' },
+        { a: 'pool', b: 'driver', dir: 'req', t: 'The pool opens its connections through the PostgreSQL JDBC driver.' },
+        { a: 'driver', b: 'pg', dir: 'req', t: 'The driver runs SELECT on the documents table as docvault_app.' },
+        { a: 'pg', b: 'app', dir: 'res', t: 'The rows come back through the same connection, and the servlet builds the page.' },
+        { a: 'app', b: 'nginx', dir: 'res', t: 'Tomcat answers 200 with the page. If the database were down it would answer 503.' },
+        { a: 'nginx', b: 'browser', dir: 'res', t: 'NGINX passes the response back, and the browser draws the list.' }
+      ]
+    },
+    upload: {
+      label: 'Upload a file',
+      steps: [
+        { a: 'browser', b: 'nginx', dir: 'req', touch: ['ufw'], t: 'The browser POSTs the file to port 8081. NGINX accepts bodies up to 25 MB.' },
+        { a: 'nginx', b: 'app', dir: 'req', t: 'NGINX forwards the multipart request to the servlet and keeps the Host header with its port.' },
+        { a: 'app', b: 'disk', dir: 'req', touch: ['systemd', 'fs'], t: 'The servlet writes the file to /var/lib/docvault/files as the tomcat user. The systemd sandbox allows that path.' },
+        { a: 'app', b: 'pool', dir: 'req', t: 'It then asks the pool for a database connection.' },
+        { a: 'pool', b: 'driver', dir: 'req', t: 'The pool uses the JDBC driver to reach PostgreSQL.' },
+        { a: 'driver', b: 'pg', dir: 'req', t: 'The driver runs INSERT with the title, file name, size, and storage path.' },
+        { a: 'pg', b: 'app', dir: 'res', t: 'The row is saved. If this step failed, the servlet would delete the file again.' },
+        { a: 'app', b: 'nginx', dir: 'res', t: 'Tomcat answers 302 with a Location header that points back to the list page.' },
+        { a: 'nginx', b: 'browser', dir: 'res', t: 'The browser follows the redirect to the list and shows the upload message.' }
+      ]
+    },
+    download: {
+      label: 'Download a file',
+      steps: [
+        { a: 'browser', b: 'nginx', dir: 'req', touch: ['ufw'], t: 'The browser sends GET /docvault/download?id=1 to port 8081.' },
+        { a: 'nginx', b: 'app', dir: 'req', t: 'NGINX proxies the request to the download servlet on Tomcat.' },
+        { a: 'app', b: 'pool', dir: 'req', t: 'The servlet takes a connection from the pool to look the document up.' },
+        { a: 'pool', b: 'driver', dir: 'req', t: 'The pool reaches the database through the JDBC driver.' },
+        { a: 'driver', b: 'pg', dir: 'req', t: 'The driver runs SELECT on the row with that ID.' },
+        { a: 'pg', b: 'app', dir: 'res', t: 'The row returns the path of the stored file.' },
+        { a: 'app', b: 'disk', dir: 'req', touch: ['fs'], t: 'The servlet reads that path from disk. If the row exists but the file does not, it answers 404 with its own message.' },
+        { a: 'app', b: 'nginx', dir: 'res', t: 'The servlet streams the file back with a Content-Disposition header.' },
+        { a: 'nginx', b: 'browser', dir: 'res', t: 'NGINX passes the bytes along, and the browser saves the file.' }
+      ]
+    }
+  };
+
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function ease(p) { return p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2; }
+  function nodeWorld(id) {
+    var n = NODES[id];
+    return { x: n.x, y: LAYER_BY_ID[n.layer].y + 0.05 + NODE_H / 2, z: 0 };
+  }
+
+  var cur = 'list';
+  var step = 0;
+  var p = 0;
+  var active = false;
+  var playing = false;
+  var waiting = false;
+  var waitT = 0;
+  var selected = 'nginx';
+  var dirty = true;
+
+  var view = { az: -0.55, el: 0.38, zoom: 1 };
+  var G = null;
+
+  var labelsEl = $('labels');
+  var labelBtns = {};
+  var layerLabels = [];
+
+  Object.keys(NODES).forEach(function (id) {
+    var n = NODES[id];
+    var b = el('button', 'lbl');
+    b.type = 'button';
+    b.setAttribute('aria-pressed', 'false');
+    b.appendChild(document.createTextNode(n.title));
+    b.appendChild(el('small', null, n.sub));
+    b.addEventListener('click', function () { select(id); });
+    labelsEl.appendChild(b);
+    labelBtns[id] = b;
+  });
+  LAYERS.forEach(function (l) {
+    var s = el('span', 'layer-name', l.name);
+    labelsEl.appendChild(s);
+    layerLabels.push({ el: s, layer: l });
+  });
+
+  var scenEl = $('scen');
+  var scenBtns = {};
+  Object.keys(SCEN).forEach(function (k) {
+    var b = el('button', 'btn', SCEN[k].label);
+    b.type = 'button';
+    b.addEventListener('click', function () { setScenario(k); });
+    scenEl.appendChild(b);
+    scenBtns[k] = b;
+  });
+
+  var stepsEl = $('steps');
+  var playBtn = $('play');
+
+  function renderSteps() {
+    stepsEl.textContent = '';
+    SCEN[cur].steps.forEach(function (s, i) {
+      var li = el('li');
+      var b = el('button', 'step');
+      b.type = 'button';
+      var d = el('i', 'dir ' + s.dir);
+      var hid = el('span', 'sr', s.dir === 'res' ? 'Response. ' : 'Request. ');
+      b.appendChild(d);
+      b.appendChild(hid);
+      b.appendChild(document.createTextNode(s.t));
+      b.addEventListener('click', function () { go(i); });
+      li.appendChild(b);
+      stepsEl.appendChild(li);
+    });
+    markStep();
+  }
+  function markStep() {
+    var items = stepsEl.querySelectorAll('.step');
+    for (var i = 0; i < items.length; i++) {
+      if (i === step) items[i].setAttribute('aria-current', 'step');
+      else items[i].removeAttribute('aria-current');
+    }
+  }
+  function updateControls() {
+    playBtn.textContent = playing ? 'Pause' : 'Play';
+    Object.keys(scenBtns).forEach(function (k) {
+      scenBtns[k].setAttribute('aria-pressed', k === cur ? 'true' : 'false');
+    });
+  }
+
+  function glowNode(id) {
+    if (G && G.nodes[id]) G.nodes[id].glow = 1;
+    dirty = true;
+  }
+  function arrive() {
+    var s = SCEN[cur].steps[step];
+    if (s) glowNode(s.b);
+    var last = SCEN[cur].steps.length - 1;
+    if (playing && step < last) {
+      waiting = true;
+      waitT = RM ? 0.01 : 0.35;
+    } else {
+      playing = false;
+      updateControls();
+    }
+  }
+  function startStep(i) {
+    step = i;
+    var s = SCEN[cur].steps[i];
+    (s.touch || []).forEach(glowNode);
+    markStep();
+    if (RM) {
+      p = 1;
+      active = false;
+      arrive();
+    } else {
+      p = 0;
+      active = true;
+    }
+    dirty = true;
+  }
+  function go(i) {
+    var last = SCEN[cur].steps.length - 1;
+    playing = false;
+    waiting = false;
+    startStep(clamp(i, 0, last));
+    updateControls();
+  }
+  function play() {
+    if (playing) {
+      playing = false;
+      waiting = false;
+      updateControls();
+      return;
+    }
+    var last = SCEN[cur].steps.length - 1;
+    playing = true;
+    if (!active) {
+      if (p >= 1) startStep(step >= last ? 0 : step + 1);
+      else startStep(step);
+    }
+    updateControls();
+  }
+  function setScenario(k) {
+    cur = k;
+    playing = false;
+    waiting = false;
+    active = false;
+    step = 0;
+    p = 0;
+    renderSteps();
+    buildBeams();
+    updateControls();
+    dirty = true;
+  }
+
+  $('play').addEventListener('click', play);
+  $('back').addEventListener('click', function () { go(step - 1); });
+  $('next').addEventListener('click', function () { go(step + 1); });
+
+  function copyText(txt, btn) {
+    function done() {
+      btn.textContent = 'Copied';
+      setTimeout(function () { btn.textContent = 'Copy'; }, 1400);
+    }
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = txt;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { if (document.execCommand('copy')) done(); } catch (e) { /* nothing to do */ }
+      document.body.removeChild(ta);
+    }
+    try {
+      navigator.clipboard.writeText(txt).then(done, fallback);
+    } catch (e) {
+      fallback();
+    }
+  }
+
+  var detailEl = $('detail');
+  function renderDetail(id) {
+    var n = NODES[id];
+    detailEl.textContent = '';
+    var head = el('div', 'd-head');
+    head.appendChild(el('h2', null, n.title));
+    head.appendChild(el('span', 'layer-chip', LAYER_BY_ID[n.layer].name));
+    detailEl.appendChild(head);
+    detailEl.appendChild(el('p', 'd-sub', n.sub));
+    detailEl.appendChild(el('p', 'what', n.what));
+
+    detailEl.appendChild(el('h3', null, 'Skills it exercises'));
+    var ul = el('ul', 'chips');
+    n.skills.forEach(function (s) { ul.appendChild(el('li', null, s)); });
+    detailEl.appendChild(ul);
+
+    detailEl.appendChild(el('h3', null, 'Inspect it'));
+    n.inspect.forEach(function (c) {
+      var row = el('div', 'cmd');
+      row.appendChild(el('code', null, c));
+      var cb = el('button', 'copy', 'Copy');
+      cb.type = 'button';
+      cb.setAttribute('aria-label', 'Copy command');
+      cb.addEventListener('click', function () { copyText(c, cb); });
+      row.appendChild(cb);
+      detailEl.appendChild(row);
+    });
+
+    detailEl.appendChild(el('h3', null, 'What has happened here'));
+    n.notes.forEach(function (nt) {
+      var row = el('div', 'note');
+      row.appendChild(el('span', 'tag ' + nt.kind, nt.kind === 'seen' ? 'In the lab' : 'Planned'));
+      row.appendChild(el('span', null, nt.text));
+      detailEl.appendChild(row);
+    });
+  }
+  function select(id) {
+    selected = id;
+    Object.keys(labelBtns).forEach(function (k) {
+      labelBtns[k].setAttribute('aria-pressed', k === id ? 'true' : 'false');
+    });
+    renderDetail(id);
+    dirty = true;
+  }
+
+  function tok(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+  function palette() {
+    return {
+      slab: tok('--slab'), slabEdge: tok('--slab-edge'),
+      req: tok('--n-req'), data: tok('--n-data'), ext: tok('--n-ext'), os: tok('--n-os'),
+      nEdge: tok('--n-edge'), pReq: tok('--p-req'), pRes: tok('--p-res'), sel: tok('--sel')
+    };
+  }
+
+  function initGL() {
+    var T = window.THREE;
+    if (!T) return null;
+    var renderer;
+    try {
+      renderer = new T.WebGLRenderer({ canvas: $('gl'), antialias: true, alpha: true });
+    } catch (e) {
+      return null;
+    }
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    var scene = new T.Scene();
+    var camera = new T.PerspectiveCamera(40, 1, 0.1, 100);
+    scene.add(new T.AmbientLight(0xffffff, 0.8));
+    var dl = new T.DirectionalLight(0xffffff, 0.55);
+    dl.position.set(4, 8, 6);
+    scene.add(dl);
+
+    var g = { T: T, renderer: renderer, scene: scene, camera: camera, nodes: {}, meshes: [], slabs: [], beams: [], frame: null, pulse: null, C: palette() };
+
+    LAYERS.forEach(function (L) {
+      var geo = new T.BoxGeometry(14, 0.1, 6.4);
+      var mat = new T.MeshLambertMaterial({ color: g.C.slab, transparent: true, opacity: 0.72, depthWrite: false });
+      var mesh = new T.Mesh(geo, mat);
+      mesh.position.set(0, L.y, 0);
+      scene.add(mesh);
+      var em = new T.LineBasicMaterial({ color: g.C.slabEdge });
+      var lines = new T.LineSegments(new T.EdgesGeometry(geo), em);
+      lines.position.copy(mesh.position);
+      scene.add(lines);
+      g.slabs.push({ mat: mat, edge: em });
+    });
+
+    var appY = LAYER_BY_ID.app.y;
+    var fgeo = new T.BoxGeometry(11.2, 1.5, 3.2);
+    var fmat = new T.LineDashedMaterial({ color: g.C.req, dashSize: 0.28, gapSize: 0.16 });
+    var frame = new T.LineSegments(new T.EdgesGeometry(fgeo), fmat);
+    frame.computeLineDistances();
+    frame.position.set(0, appY + 0.05 + 0.75, 0);
+    scene.add(frame);
+    g.frame = { mat: fmat };
+
+    Object.keys(NODES).forEach(function (id) {
+      var n = NODES[id];
+      if (n.frame) return;
+      var geo = new T.BoxGeometry(2.4, NODE_H, 1.3);
+      var mat = new T.MeshLambertMaterial({ color: g.C[n.role], emissive: g.C[n.role], emissiveIntensity: 0 });
+      var mesh = new T.Mesh(geo, mat);
+      var w = nodeWorld(id);
+      mesh.position.set(w.x, w.y, w.z);
+      mesh.userData.id = id;
+      var em = new T.LineBasicMaterial({ color: g.C.nEdge });
+      mesh.add(new T.LineSegments(new T.EdgesGeometry(geo), em));
+      scene.add(mesh);
+      g.meshes.push(mesh);
+      g.nodes[id] = { mesh: mesh, mat: mat, edge: em, glow: 0 };
+    });
+
+    var pulse = new T.Mesh(new T.SphereGeometry(0.2, 18, 14), new T.MeshBasicMaterial({ color: g.C.pReq }));
+    scene.add(pulse);
+    g.pulse = pulse;
+    return g;
+  }
+
+  function applyTheme() {
+    if (!G) return;
+    G.C = palette();
+    G.slabs.forEach(function (s) { s.mat.color.set(G.C.slab); s.edge.color.set(G.C.slabEdge); });
+    Object.keys(G.nodes).forEach(function (id) {
+      var n = G.nodes[id];
+      var c = G.C[NODES[id].role];
+      n.mat.color.set(c);
+      n.mat.emissive.set(c);
+    });
+    dirty = true;
+  }
+
+  function endpoints(s) {
+    var a = nodeWorld(s.a);
+    var b = nodeWorld(s.b);
+    var off = s.dir === 'res' ? 0.22 : 0;
+    var T = G.T;
+    return [new T.Vector3(a.x, a.y, a.z + off), new T.Vector3(b.x, b.y, b.z + off)];
+  }
+  function buildBeams() {
+    if (!G) return;
+    var T = G.T;
+    G.beams.forEach(function (b) {
+      G.scene.remove(b.mesh);
+      b.mesh.geometry.dispose();
+      b.mesh.material.dispose();
+    });
+    G.beams = [];
+    SCEN[cur].steps.forEach(function (s) {
+      var ends = endpoints(s);
+      var A = ends[0];
+      var B = ends[1];
+      var len = A.distanceTo(B);
+      var mat = new T.MeshBasicMaterial({ color: s.dir === 'res' ? G.C.pRes : G.C.pReq, transparent: true, opacity: 0.2, depthWrite: false });
+      var mesh = new T.Mesh(new T.CylinderGeometry(0.035, 0.035, len, 6), mat);
+      mesh.position.copy(A).add(B).multiplyScalar(0.5);
+      mesh.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), B.clone().sub(A).normalize());
+      G.scene.add(mesh);
+      G.beams.push({ mesh: mesh, mat: mat });
+    });
+  }
+
+  function placeCamera() {
+    if (!G) return;
+    var aspect = G.camera.aspect || 1.6;
+    var base = Math.max(17, 21.4 / aspect + 1);
+    var d = base * view.zoom;
+    var ce = Math.cos(view.el);
+    G.camera.position.set(d * ce * Math.sin(view.az), d * Math.sin(view.el), d * ce * Math.cos(view.az));
+    G.camera.lookAt(0, 0, 0);
+    dirty = true;
+  }
+  function resize() {
+    if (!G) return;
+    var vp = $('viewport');
+    var w = vp.clientWidth;
+    var h = vp.clientHeight;
+    if (!w || !h) return;
+    G.renderer.setSize(w, h, false);
+    G.camera.aspect = w / h;
+    G.camera.updateProjectionMatrix();
+    placeCamera();
+  }
+
+  function project(v3) {
+    var T = G.T;
+    var v = new T.Vector3(v3.x, v3.y, v3.z).project(G.camera);
+    var vp = $('viewport');
+    return { x: (v.x * 0.5 + 0.5) * vp.clientWidth, y: (-v.y * 0.5 + 0.5) * vp.clientHeight, z: v.z };
+  }
+  function placeLabel(elm, pos) {
+    var s = project(pos);
+    elm.style.transform = 'translate(' + Math.round(s.x) + 'px,' + Math.round(s.y) + 'px) translate(-50%,-100%)';
+    elm.style.visibility = s.z > 1 ? 'hidden' : 'visible';
+  }
+  function updateLabels() {
+    Object.keys(NODES).forEach(function (id) {
+      var n = NODES[id];
+      var pos;
+      if (n.frame) pos = { x: 5.2, y: LAYER_BY_ID.app.y + 2.1, z: 1.6 };
+      else {
+        var w = nodeWorld(id);
+        pos = { x: w.x, y: w.y + NODE_H / 2 + 0.1, z: w.z };
+      }
+      placeLabel(labelBtns[id], pos);
+    });
+    layerLabels.forEach(function (l) {
+      var s = project({ x: -7, y: l.layer.y, z: 3.2 });
+      l.el.style.transform = 'translate(' + Math.round(s.x) + 'px,' + Math.round(s.y) + 'px) translate(0,-50%)';
+    });
+  }
+
+  function draw() {
+    if (!G) return;
+    var steps = SCEN[cur].steps;
+    var s = steps[step];
+    G.beams.forEach(function (b, i) {
+      b.mat.opacity = i === step ? 1 : (i < step ? 0.5 : 0.16);
+    });
+    var ends = endpoints(s);
+    G.pulse.position.lerpVectors(ends[0], ends[1], ease(p));
+    G.pulse.material.color.set(s.dir === 'res' ? G.C.pRes : G.C.pReq);
+    Object.keys(G.nodes).forEach(function (id) {
+      var n = G.nodes[id];
+      var isSel = id === selected;
+      n.mat.emissiveIntensity = n.glow * 0.85 + (isSel ? 0.12 : 0);
+      n.edge.color.set(isSel ? G.C.sel : G.C.nEdge);
+      var sc = isSel ? 1.08 : 1;
+      n.mesh.scale.set(sc, sc, sc);
+    });
+    G.frame.mat.color.set(selected === 'tomcat' ? G.C.sel : G.C.req);
+    G.renderer.render(G.scene, G.camera);
+    updateLabels();
+  }
+
+  function update(dt) {
+    if (active) {
+      p += dt / 1.0;
+      if (p >= 1) {
+        p = 1;
+        active = false;
+        arrive();
+      }
+      dirty = true;
+    }
+    if (waiting) {
+      waitT -= dt;
+      if (waitT <= 0) {
+        waiting = false;
+        startStep(step + 1);
+      }
+    }
+    if (G) {
+      Object.keys(G.nodes).forEach(function (id) {
+        var n = G.nodes[id];
+        if (n.glow > 0) {
+          n.glow = Math.max(0, n.glow - dt * 1.6);
+          dirty = true;
+        }
+      });
+    }
+  }
+
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    update(dt);
+    if (dirty) {
+      dirty = false;
+      draw();
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function pick(e) {
+    if (!G) return;
+    var T = G.T;
+    var vp = $('viewport');
+    var r = vp.getBoundingClientRect();
+    var ndc = new T.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    var rc = new T.Raycaster();
+    rc.setFromCamera(ndc, G.camera);
+    var hit = rc.intersectObjects(G.meshes, false);
+    if (hit.length) select(hit[0].object.userData.id);
+  }
+
+  function bindPointer() {
+    var vp = $('viewport');
+    var pts = new Map();
+    var lastPinch = 0;
+    var down = null;
+    var moved = false;
+    vp.addEventListener('pointerdown', function (e) {
+      if (e.target.closest && e.target.closest('.lbl')) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+      try { vp.setPointerCapture(e.pointerId); } catch (err) { /* capture is optional */ }
+      down = { x: e.clientX, y: e.clientY };
+      moved = false;
+      lastPinch = 0;
+    });
+    vp.addEventListener('pointermove', function (e) {
+      var pt = pts.get(e.pointerId);
+      if (!pt) return;
+      var dx = e.clientX - pt.x;
+      var dy = e.clientY - pt.y;
+      pt.x = e.clientX;
+      pt.y = e.clientY;
+      if (pts.size === 2) {
+        var a = Array.from(pts.values());
+        var d = Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+        if (lastPinch && d) view.zoom = clamp(view.zoom * (lastPinch / d), 0.5, 1.6);
+        lastPinch = d;
+        moved = true;
+        placeCamera();
+        return;
+      }
+      if (down && Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 4) moved = true;
+      view.az -= dx * 0.006;
+      if (pt.type !== 'touch') view.el = clamp(view.el + dy * 0.005, -0.1, 1.3);
+      placeCamera();
+    });
+    vp.addEventListener('pointerup', function (e) {
+      var had = pts.has(e.pointerId);
+      pts.delete(e.pointerId);
+      lastPinch = 0;
+      if (had && !moved && pts.size === 0) pick(e);
+    });
+    vp.addEventListener('pointercancel', function (e) {
+      pts.delete(e.pointerId);
+      lastPinch = 0;
+    });
+    vp.addEventListener('wheel', function (e) {
+      e.preventDefault();
+      view.zoom = clamp(view.zoom * Math.exp(e.deltaY * 0.001), 0.5, 1.6);
+      placeCamera();
+    }, { passive: false });
+    vp.addEventListener('dblclick', function () {
+      view.az = -0.55;
+      view.el = 0.38;
+      view.zoom = 1;
+      placeCamera();
+    });
+  }
+
+  function onTheme() {
+    applyTheme();
+    buildBeams();
+  }
+
+  G = initGL();
+  if (!G) {
+    $('nogl').hidden = false;
+    $('gl').style.display = 'none';
+    Object.keys(labelBtns).forEach(function (k) { labelBtns[k].style.display = 'none'; });
+    layerLabels.forEach(function (l) { l.el.style.display = 'none'; });
+  } else {
+    bindPointer();
+    if (window.ResizeObserver) new ResizeObserver(resize).observe($('viewport'));
+    window.addEventListener('resize', resize);
+    new MutationObserver(onTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    if (window.matchMedia) {
+      var mq = matchMedia('(prefers-color-scheme: dark)');
+      if (mq.addEventListener) mq.addEventListener('change', onTheme);
+      else if (mq.addListener) mq.addListener(onTheme);
+    }
+  }
+
+  select('nginx');
+  setScenario('list');
+  resize();
+  requestAnimationFrame(frame);
+  if (!RM) setTimeout(play, 900);
+})();
+</script>
+</body>
+</html>
