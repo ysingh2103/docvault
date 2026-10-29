@@ -76,7 +76,10 @@ public class DocumentsServlet extends HttpServlet {
               <div class="list-head">
                 <h2 id="list-h">Documents</h2>
                 <p class="sum">{{summary}}</p>
-                <input class="txt filter" id="filter" type="search" placeholder="Filter by title or file name" aria-label="Filter documents">
+                <form class="searchbar" method="get" action="documents" role="search">
+                  <input class="txt filter" id="q" name="q" type="search" value="{{q}}" maxlength="100" placeholder="Search title or file name" aria-label="Search documents">
+                  <button class="btn" type="submit">Search</button>{{clear}}
+                </form>
               </div>
             """;
 
@@ -95,11 +98,24 @@ public class DocumentsServlet extends HttpServlet {
         int count = 0;
         long total = 0;
         boolean dbOk = true;
+        String q = req.getParameter("q");
+        q = q == null ? "" : q.trim();
+        boolean searching = !q.isEmpty();
+        // Search uses the GIN index on search_vector and ranks by relevance;
+        // without a query the list is newest first.
+        String sql = searching
+                ? "SELECT document_id, title, file_name, size_bytes, uploaded_at FROM documents "
+                + "WHERE search_vector @@ websearch_to_tsquery('english', ?) "
+                + "ORDER BY ts_rank(search_vector, websearch_to_tsquery('english', ?)) DESC, uploaded_at DESC"
+                : "SELECT document_id, title, file_name, size_bytes, uploaded_at "
+                + "FROM documents ORDER BY uploaded_at DESC";
         try (Connection c = Db.get();
-             PreparedStatement ps = c.prepareStatement(
-                     "SELECT document_id, title, file_name, size_bytes, uploaded_at "
-                   + "FROM documents ORDER BY uploaded_at DESC");
-             ResultSet rs = ps.executeQuery()) {
+             PreparedStatement ps = c.prepareStatement(sql)) {
+            if (searching) {
+                ps.setString(1, q);
+                ps.setString(2, q);
+            }
+            ResultSet rs = ps.executeQuery();
             while (rs.next()) {
                 int id = rs.getInt(1);
                 String title = rs.getString(2);
@@ -131,14 +147,19 @@ public class DocumentsServlet extends HttpServlet {
             toast = "<div class=\"" + kind + "\" role=\"status\">" + esc(msg) + "</div>\n";
         }
 
-        String summary = dbOk
-                ? count + (count == 1 ? " document, " : " documents, ") + formatBytes(total) + " stored"
-                : "The list is unavailable right now";
+        String summary = !dbOk
+                ? "The list is unavailable right now"
+                : searching
+                ? count + (count == 1 ? " match" : " matches") + " for “" + esc(q) + "”"
+                : count + (count == 1 ? " document, " : " documents, ") + formatBytes(total) + " stored";
 
         String table;
         if (!dbOk) {
             table = "<div class=\"empty\"><p>Documents can't be loaded.</p>"
                   + "<p>The database isn't reachable. Try again in a minute, or contact support.</p></div>\n";
+        } else if (count == 0 && searching) {
+            table = "<div class=\"empty\"><p>No documents match that search.</p>"
+                  + "<p>Try a different word, or clear the search to see everything.</p></div>\n";
         } else if (count == 0) {
             table = "<div class=\"empty\"><p>No documents yet.</p>"
                   + "<p>Choose a file above to store your first one.</p></div>\n";
@@ -155,7 +176,9 @@ public class DocumentsServlet extends HttpServlet {
         out.print(TOP.replace("{{statusClass}}", dbOk ? "up" : "down")
                      .replace("{{statusText}}", dbOk ? "Database online" : "Database unreachable"));
         out.print(toast);
-        out.print(UPLOAD.replace("{{summary}}", summary));
+        out.print(UPLOAD.replace("{{summary}}", summary)
+                        .replace("{{q}}", esc(q))
+                        .replace("{{clear}}", searching ? " <a class=\"btn\" href=\"documents\">Clear</a>" : ""));
         out.print(table);
         out.print(BOTTOM);
     }
