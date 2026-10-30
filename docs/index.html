@@ -210,10 +210,9 @@ h1 { margin: 0 0 6px; font: 600 30px/1.15 var(--display); letter-spacing: -0.01e
             <thead><tr><th>Request</th><th>NGINX</th><th>Tomcat</th><th>What it shows</th></tr></thead>
             <tbody>
               <tr><td>Signed-out page (redirect to sign-in)</td><td>5 to 8 ms</td><td>under 1 ms</td><td>The app is quick; nearly all the wait is the hop between the two.</td></tr>
-              <tr><td>Document list, signed in</td><td>not captured</td><td>26 ms</td><td>Includes the PostgreSQL query.</td></tr>
-              <tr><td>Sign-in</td><td>not captured</td><td>1,460 ms</td><td>Password hashing is deliberately slow. First sign-in after a restart, so it includes warm-up.</td></tr>
-              <tr><td>First request into Tomcat after a restart</td><td>not captured</td><td>838 ms</td><td>The app loads on first use.</td></tr>
-              <tr><td>Request sent while Tomcat was still starting</td><td>5.8 s and 7.7 s</td><td>not captured</td><td>The connection was accepted, then waited for Tomcat to finish starting.</td></tr>
+              <tr><td>Document list, signed in</td><td>31 ms</td><td>26 ms</td><td>Includes the PostgreSQL query. Only 5 ms is spent between the two.</td></tr>
+              <tr><td>Sign-in</td><td>1,473 ms</td><td>1,460 ms</td><td>Password hashing is deliberately slow. First sign-in after a restart, so it includes warm-up.</td></tr>
+              <tr><td>First request after a restart</td><td>8,773 ms</td><td>1,324 ms</td><td>About 7.4 s passed before Tomcat began handling it, because it was still starting. Then the app took 1.3 s to load on first use. Earlier restarts showed the same pattern (838 ms in Tomcat; 5.8 s and 7.7 s waits at NGINX).</td></tr>
             </tbody>
           </table>
         </div>
