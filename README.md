@@ -3,6 +3,8 @@
 
 A small document-management web app built to practise the stack enterprise support teams work with: Linux, Tomcat, NGINX, PostgreSQL, plus a Windows leg and monitoring. Self-directed learning project, built step by step with AI assistance.
 
+**Live demo:** [DocVault Explorer](https://ysingh2103.github.io/docvault/), an interactive 3D walkthrough of how a request travels through NGINX, Tomcat, PostgreSQL and Linux, with the commands and incidents for each part.
+
 ## Architecture
 Browser -> NGINX (reverse proxy) -> Tomcat 10 (DocVault WAR) -> PostgreSQL (metadata) + disk (files)
 
@@ -10,6 +12,8 @@ Browser -> NGINX (reverse proxy) -> Tomcat 10 (DocVault WAR) -> PostgreSQL (meta
 - Upload, list, and download documents (20 MB limit)
 - Files stored on disk, metadata in PostgreSQL
 - Database access through a Tomcat-managed connection pool (JNDI), no credentials in code
+- Full-text search (PostgreSQL tsvector with a GIN index), ranked by relevance
+- Sign-in with salted password hashes and admin / editor / viewer roles, with per-document sharing
 - Dark blue UI with drag-and-drop upload and live filtering
 
 ## Status
