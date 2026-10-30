@@ -5,7 +5,6 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
-import jakarta.servlet.annotation.WebFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -16,7 +15,6 @@ import java.util.regex.Pattern;
  * Writes one log line per request, tagged with the id NGINX assigned (X-Request-ID),
  * so a single request can be followed through NGINX and Tomcat by searching for its id.
  */
-@WebFilter("/*")
 public class RequestIdFilter implements Filter {
 
     /** Only accept ids that look like ones NGINX makes, so a client cannot inject text into our logs. */
