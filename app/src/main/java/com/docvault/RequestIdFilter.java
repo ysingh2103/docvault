@@ -55,7 +55,7 @@ public class RequestIdFilter implements Filter {
             } catch (IllegalStateException ignored) {
                 // the session was closed during this request (sign-out)
             }
-            req.getServletContext().log("DocVault rid=" + rid + " user=" + user + " " + req.getMethod() + " "
+            Log.log("DocVault rid=" + rid + " user=" + user + " " + req.getMethod() + " "
                     + path + " status=" + resp.getStatus() + " tomcat_ms=" + ms);
         }
     }

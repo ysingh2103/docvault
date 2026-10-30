@@ -89,13 +89,13 @@ public class LoginServlet extends HttpServlet {
                 }
             }
         } catch (Exception e) {
-            getServletContext().log("DocVault: sign-in lookup failed", e);
+            Log.log("DocVault: sign-in lookup failed", e);
             write(resp, 503, errorToast("Sign-in is unavailable right now. The database can't be reached."));
             return;
         }
 
         if (!ok) {
-            getServletContext().log("DocVault: failed sign-in for user '" + username.trim() + "' from "
+            Log.log("DocVault: failed sign-in for user '" + username.trim() + "' from "
                     + req.getRemoteAddr());
             write(resp, 401, errorToast("Wrong username or password."));
             return;
@@ -109,7 +109,7 @@ public class LoginServlet extends HttpServlet {
         HttpSession session = req.getSession(true);
         session.setMaxInactiveInterval(30 * 60);
         session.setAttribute(Auth.SESSION_KEY, user);
-        getServletContext().log("DocVault: " + user.username() + " (" + user.role() + ") signed in");
+        Log.log("DocVault: " + user.username() + " (" + user.role() + ") signed in");
         resp.sendRedirect(req.getContextPath() + "/documents");
     }
 

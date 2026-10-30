@@ -52,7 +52,7 @@ public class DownloadServlet extends HttpServlet {
                 }
             }
         } catch (Exception e) {
-            getServletContext().log("DocVault: download lookup failed", e);
+            Log.log("DocVault: download lookup failed", e);
             resp.sendError(503, "Document database unavailable");
             return;
         }
@@ -62,13 +62,13 @@ public class DownloadServlet extends HttpServlet {
             return;
         }
         if (!allowed) {
-            getServletContext().log("DocVault: " + user.username() + " was refused document " + id);
+            Log.log("DocVault: " + user.username() + " was refused document " + id);
             resp.sendError(403, "You don't have access to this document");
             return;
         }
         Path file = Paths.get(path);
         if (!Files.isReadable(file)) {
-            getServletContext().log("DocVault: record exists but file is missing: " + path);
+            Log.log("DocVault: record exists but file is missing: " + path);
             resp.sendError(404, "The document record exists but its file is missing");
             return;
         }

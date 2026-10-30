@@ -159,7 +159,7 @@ public class DocumentsServlet extends HttpServlet {
             }
         } catch (Exception e) {
             dbOk = false;
-            getServletContext().log("DocVault: could not list documents", e);
+            Log.log("DocVault: could not list documents", e);
         }
 
         String toast = "";
@@ -222,7 +222,7 @@ public class DocumentsServlet extends HttpServlet {
             return;
         }
         if (!user.canUpload()) {
-            getServletContext().log("DocVault: upload refused for " + user.username() + " (" + user.role() + ")");
+            Log.log("DocVault: upload refused for " + user.username() + " (" + user.role() + ")");
             resp.sendError(403, "Your role cannot upload documents");
             return;
         }
@@ -232,7 +232,7 @@ public class DocumentsServlet extends HttpServlet {
             part = req.getPart("file");
             title = req.getParameter("title");
         } catch (IllegalStateException | ServletException e) {
-            getServletContext().log("DocVault: rejected upload request", e);
+            Log.log("DocVault: rejected upload request", e);
             redirect(resp, "error", "That file is larger than 20 MB, or the upload was interrupted.");
             return;
         }
@@ -267,7 +267,7 @@ public class DocumentsServlet extends HttpServlet {
             }
             redirect(resp, "ok", "Uploaded " + original + ".");
         } catch (Exception e) {
-            getServletContext().log("DocVault: upload failed for " + original, e);
+            Log.log("DocVault: upload failed for " + original, e);
             if (target != null) {
                 try {
                     Files.deleteIfExists(target);
