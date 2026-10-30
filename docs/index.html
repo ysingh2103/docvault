@@ -154,6 +154,16 @@ h1 { margin: 0 0 6px; font: 600 30px/1.15 var(--display); letter-spacing: -0.01e
 .tag { flex: none; margin-top: 1px; padding: 0 8px; font-size: 12px; line-height: 1.6; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .tag.seen { color: var(--on-blue); background: var(--blue); border-color: var(--blue); }
 
+.obs { margin-top: 20px; }
+.obs h2 { margin: 0 0 8px; font: 600 16px/1.3 var(--display); }
+.obs-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.obs table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 13.5px; }
+.obs th, .obs td { padding: 8px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+.obs th { color: var(--muted); font: 500 12px/1.3 var(--body); }
+.obs tbody tr:last-child td { border-bottom: 0; }
+.obs td:nth-child(2), .obs td:nth-child(3) { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; }
+.obs-note { margin: 8px 0 0; font-size: 12.5px; color: var(--muted); }
+
 @media (max-width: 860px) {
   .grid { grid-template-columns: minmax(0, 1fr); }
   .detail { position: static; }
@@ -192,7 +202,23 @@ h1 { margin: 0 0 6px; font: 600 30px/1.15 var(--display); letter-spacing: -0.01e
           <button class="btn" id="next" type="button">Next</button>
         </div>
       </div>
-      <p class="replay-note">This replays the path of a request at an illustrative speed. Real timings arrive once each tier logs a request ID.</p>
+      <p class="replay-note">The replay speed is illustrative. The table below holds real timings from the lab VM.</p>
+      <section class="obs" aria-labelledby="obs-h">
+        <h2 id="obs-h">Measured on the lab VM</h2>
+        <div class="obs-wrap">
+          <table>
+            <thead><tr><th>Request</th><th>NGINX</th><th>Tomcat</th><th>What it shows</th></tr></thead>
+            <tbody>
+              <tr><td>Signed-out page (redirect to sign-in)</td><td>5 to 8 ms</td><td>under 1 ms</td><td>The app is quick; nearly all the wait is the hop between the two.</td></tr>
+              <tr><td>Document list, signed in</td><td>not captured</td><td>26 ms</td><td>Includes the PostgreSQL query.</td></tr>
+              <tr><td>Sign-in</td><td>not captured</td><td>1,460 ms</td><td>Password hashing is deliberately slow. First sign-in after a restart, so it includes warm-up.</td></tr>
+              <tr><td>First request into Tomcat after a restart</td><td>not captured</td><td>838 ms</td><td>The app loads on first use.</td></tr>
+              <tr><td>Request sent while Tomcat was still starting</td><td>5.8 s and 7.7 s</td><td>not captured</td><td>The connection was accepted, then waited for Tomcat to finish starting.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="obs-note">Single requests on Oct 29, 2026, matched across both logs by request ID. They are observations, not averages.</p>
+      </section>
       <ol class="steps" id="steps"></ol>
     </section>
     <aside class="detail" id="detail" aria-label="Details for the selected part"></aside>
