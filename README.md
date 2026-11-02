@@ -8,6 +8,9 @@ A small document-management web app built to practise the stack enterprise suppo
 ## Architecture
 Browser -> NGINX (reverse proxy) -> Tomcat 10 (DocVault WAR) -> PostgreSQL (metadata) + disk (files)
 
+A second route goes through Windows: Browser -> IIS (WINWEB01) -> NGINX -> Tomcat -> PostgreSQL.
+Both routes reach the same app, so a fault can be found by testing each layer on its own.
+
 ## Features
 - Upload, list, and download documents (20 MB limit)
 - Files stored on disk, metadata in PostgreSQL
@@ -21,15 +24,19 @@ Browser -> NGINX (reverse proxy) -> Tomcat 10 (DocVault WAR) -> PostgreSQL (meta
 |---|---|
 | 0. Database schema | Done |
 | 1. Upload/list app on Tomcat behind NGINX | Done |
-| 2. Search and permissions | Next |
-| 3. Windows leg (IIS + SQL Server) | Planned |
-| 4. Monitoring (Grafana) | Planned |
-| 5. Break-fix trainer and runbooks | Planned |
+| 2a. Full-text search (GIN index) | Done |
+| 2b. Login and roles | Done |
+| 3. Request IDs across NGINX and Tomcat | Done |
+| 4. Windows leg: IIS as a reverse proxy | Done (`deploy/windows/`) |
+| 4b. Windows leg: SQL Server Express and T-SQL | Next |
+| 5. Monitoring (Grafana) | Planned |
+| 6. Break-fix trainer and runbooks | Planned |
 
 ## Layout
 - sql/ - database schema
 - app/ - Java servlet app (Maven)
 - deploy/ - NGINX, Tomcat, and systemd configuration used on the server
+- deploy/windows/ - PowerShell scripts for the Windows Server leg (fixed IP, IIS, reverse proxy)
 - docs/ - architecture and incident runbooks
 - trainer/ - scripted faults
 
