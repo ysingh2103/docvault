@@ -296,7 +296,7 @@ h1 { margin: 0 0 6px; font: 600 30px/1.15 var(--display); letter-spacing: -0.01e
         { kind: 'seen', text: 'After DHCP was turned off the server had no address. From another PC, Test-NetConnection failed with DestinationHostUnreachable: nobody answered for that address. Setting the address again from the VM console fixed it.' },
         { kind: 'seen', text: 'A domain join failed with "domain does not exist or could not be contacted". DNS pointed at the router, not the domain controller. Port 389 being open only proved the controller was reachable. The join was not needed here, so it was skipped.' },
         { kind: 'seen', text: 'Test-NetConnection LINUXIP failed with "Name resolution failed": the placeholder had been typed as a real name.' },
-        { kind: 'planned', text: 'Stop the IIS site: port 80 refuses while port 8081 on Linux still works, which places the fault in the IIS layer. Kept as a trainer scenario.' }
+        { kind: 'seen', text: 'Stopped the IIS site on purpose. Ping still worked but port 80 refused, while port 8081 on Linux answered, which placed the fault in the IIS layer. Get-Website showed Stopped. Start-Website fixed it. Run from the server itself; the view from another PC was not captured.' }
       ]
     },
     mssql: {
