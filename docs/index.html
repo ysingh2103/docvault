@@ -310,7 +310,8 @@ h1 { margin: 0 0 6px; font: 600 30px/1.15 var(--display); letter-spacing: -0.01e
       ],
       notes: [
         { kind: 'seen', text: 'sqlcmd was installed but not found by name until a new PowerShell window was opened. The full path under Client SDK\\ODBC\\170\\Tools\\Binn worked at once.' },
-        { kind: 'seen', text: 'The same permission rule gives the same answer in T-SQL as in the app: alice sees 2 documents on both sides. A LIKE title search finds the same 2 rows as PostgreSQL search for "redirect", but would miss word forms such as "redirects".' }
+        { kind: 'seen', text: 'The same permission rule gives the same answer in T-SQL as in the app: alice sees 2 documents on both sides. A LIKE title search finds the same 2 rows as PostgreSQL search for "redirect", but would miss word forms such as "redirects".' },
+        { kind: 'seen', text: 'Stopped the SQL Server service on purpose. sqlcmd failed with "Error Locating Server/Instance Specified" and "Login timeout expired", which reads like a network problem, but Get-Service showed Stopped. The DocVault web app kept working, because it uses PostgreSQL on Linux and not this copy. Start-Service fixed it.' }
       ]
     },
     tomcat: {
