@@ -96,7 +96,7 @@ public class LoginServlet extends HttpServlet {
 
         if (!ok) {
             Log.log("DocVault: failed sign-in for user '" + username.trim() + "' from "
-                    + req.getRemoteAddr());
+                    + ClientIp.of(req));
             write(resp, 401, errorToast("Wrong username or password."));
             return;
         }

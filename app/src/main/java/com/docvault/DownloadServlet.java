@@ -62,7 +62,7 @@ public class DownloadServlet extends HttpServlet {
             return;
         }
         if (!allowed) {
-            Log.log("DocVault: " + user.username() + " was refused document " + id);
+            Log.log("DocVault: " + user.username() + " was refused document " + id + " from " + ClientIp.of(req));
             resp.sendError(403, "You don't have access to this document");
             return;
         }

@@ -20,6 +20,16 @@ Set-WebConfigurationProperty -PSPath $site -Filter "$rule/match"  -Name url  -Va
 Set-WebConfigurationProperty -PSPath $site -Filter "$rule/action" -Name type -Value 'Rewrite'
 Set-WebConfigurationProperty -PSPath $site -Filter "$rule/action" -Name url  -Value "$Upstream/docvault{R:1}"
 
+# Pass the real browser address on. IIS is the first hop, so it REPLACES any X-Forwarded-For the client
+# sent (a visitor cannot fake an address). NGINX trusts this header only when it comes from this server.
+$allowed = Get-WebConfiguration -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter "system.webServer/rewrite/allowedServerVariables/add[@name='HTTP_X_FORWARDED_FOR']"
+if (-not $allowed) {
+    Add-WebConfigurationProperty -PSPath 'MACHINE/WEBROOT/APPHOST' -Filter 'system.webServer/rewrite/allowedServerVariables' `
+        -Name '.' -Value @{ name = 'HTTP_X_FORWARDED_FOR' }
+}
+Add-WebConfigurationProperty -PSPath $site -Filter "$rule/serverVariables" -Name '.' `
+    -Value @{ name = 'HTTP_X_FORWARDED_FOR'; value = '{REMOTE_ADDR}'; replace = 'True' }
+
 # Check: expect 200 and an X-Request-ID made by NGINX.
 $r = Invoke-WebRequest http://localhost/docvault/login -UseBasicParsing
 $r.StatusCode
