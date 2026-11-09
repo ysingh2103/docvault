@@ -28,9 +28,12 @@ Both routes reach the same app, so a fault can be found by testing each layer on
 | 2b. Login and roles | Done |
 | 3. Request IDs across NGINX and Tomcat | Done |
 | 4. Windows leg: IIS as a reverse proxy | Done (`deploy/windows/`) |
-| 4b. Windows leg: SQL Server Express and T-SQL | Next |
-| 5. Monitoring (Grafana) | Planned |
-| 6. Break-fix trainer and runbooks | Planned |
+| 4b. Windows leg: SQL Server Express and T-SQL | Done |
+| 5a. Real visitor address in the logs (IIS, NGINX, Tomcat) | Done |
+| 5b. Lockout after repeated wrong passwords | Built, being verified on the lab |
+| 6. HTTPS on IIS | Planned |
+| 7. Monitoring (Grafana) | Planned |
+| 8. Break-fix trainer and runbooks | Windows scenarios W1 and W2 done |
 
 ## Layout
 - sql/ - database schema
@@ -61,6 +64,17 @@ No credentials are stored in this repo. The database password lives only in Tomc
 
 Passwords are stored as salted PBKDF2-SHA256 hashes in `users.password_hash`, never as plain text.
 A refused download returns 403; a signed-out visitor is sent to `/login`.
+
+### Lockout (Phase 5b)
+
+After 5 wrong passwords for the same username from the same address within 10 minutes, sign-in is refused
+(HTTP 429 with a `Retry-After` header) until the 5th most recent failure is 10 minutes old, even if the
+next password is right. Failures are counted for usernames that do not exist too, so a lock never reveals
+which usernames are real. A correct sign-in clears the count for that user and address. The address is the
+real visitor address (see Phase 5a), so one visitor cannot lock out the same user from another address.
+
+Setup (as the postgres user): `sudo -u postgres psql -d docvault_db -f sql/04_lockout.sql`.
+Unlock by hand: `DELETE FROM login_attempts WHERE username = 'bob';` (run as postgres).
 
 ### Passwords
 
